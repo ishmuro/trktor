@@ -4,7 +4,6 @@ from typing import List, Union, Tuple, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 DEFAULT_CONFIG = "./config.toml"
@@ -13,11 +12,14 @@ TEXT_MASK_SRC = "./assets/text_mask.png"
 H_FONT_PATH = "./assets/fonts/Druk Wide Cyr Medium.otf"
 C_FONT_PATH = "./assets/fonts/Montserrat-Medium.ttf"
 
+TRANSPARENT_RGBA = (255, 255, 255, 0)
+
 FONT_SIZE = 42
 
 BAR_LENGTH = 620
-BAR_HEIGHT = 70
+BAR_HEIGHT = 50
 BAR_RIGHT_MARGIN = 20
+BAR_OUTLINE_WIDTH = 5
 
 AA_FACTOR = 1
 
@@ -84,12 +86,38 @@ def draw_progressbar(banner: Image, percent: int) -> Image:
     layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(layer)
 
-    pass
+    main_layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
+    main_draw = ImageDraw.Draw(main_layer)
+
+    x0 = banner.size[0] - BAR_RIGHT_MARGIN - BAR_LENGTH
+    y0 = BAR_HEIGHT // 4
+    x1 = banner.size[0] - BAR_RIGHT_MARGIN
+    y1 = BAR_HEIGHT // 4 + BAR_HEIGHT
+    radius = BAR_HEIGHT // 2
+
+    fx1 = x1 - (100 - percent) * 0.01 * BAR_LENGTH
+
+    draw.rounded_rectangle([x0, y0, fx1, y1], radius=radius, fill=(220, 105, 66), outline=None)
+    main_draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill="black", outline=None)
+
+    mask = Image.new("L", banner.size, color="white")
+    mask_draw = ImageDraw.Draw(mask)
+
+    mx0, my0 = [(val + BAR_OUTLINE_WIDTH) for val in [x0, y0]]
+    mx1, my1 = [(val - BAR_OUTLINE_WIDTH) for val in [x1, y1]]
+    mradius = (my1 - my0) // 2
+
+    mask_draw.rounded_rectangle([mx0, my0, mx1, my1], radius=mradius, fill="black")
+
+    layer.paste(main_layer, mask=mask)
+    banner.alpha_composite(layer, (0, cursor_y))
+
+    return banner
 
 def add_rank(banner: Image, rank: int, font: ImageFont) -> Image:
     layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(layer)
-    draw.text((10, 10), f"Rank: {rank}", font=font, fill="black")
+    draw.text((40, 10), f"Rank: {rank}", font=font, fill="black")
 
     banner.alpha_composite(layer, (0, cursor_y))
 
@@ -114,9 +142,11 @@ if __name__ == "__main__":
             current_frame = img.convert("RGBA")
 
             current_frame, height = add_nickname(current_frame, "Super Duper Long Nickname", hfont, mask=text_mask)
-            cursor_y = add_offset(height + 10)
+            cursor_y = add_offset(height + 15)
             current_frame = add_rank(current_frame, 9999, cfont)
+            current_frame = draw_progressbar(current_frame, 70)
 
             modified_frames.append(current_frame)
 
         modified_frames[0].save("./result.gif", save_all=True, append_images=modified_frames[1:], duration=duration, loop=0, optimize=False)
+        modified_frames[0].save("./preview.png", save_all=True)
