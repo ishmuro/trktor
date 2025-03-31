@@ -1,16 +1,17 @@
 import logging
 import os
-from typing import List, Union, Tuple, Optional
+from typing import List, Union, Tuple, Optional, Dict
 
 from PIL import Image, ImageDraw, ImageFont
+from PIL.Image import Resampling
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 DEFAULT_CONFIG = "./config.toml"
-IMAGE_SRC = "./assets/banner.gif"
-TEXT_MASK_SRC = "./assets/text_mask.png"
-H_FONT_PATH = "./assets/fonts/Druk Wide Cyr Medium.otf"
-C_FONT_PATH = "./assets/fonts/Montserrat-Medium.ttf"
+IMAGE_SRC = "../../assets/banner.gif"
+TEXT_MASK_SRC = "../../assets/text_mask.png"
+H_FONT_PATH = "../../assets/fonts/Druk Wide Cyr Medium.otf"
+C_FONT_PATH = "../../assets/fonts/Montserrat-Medium.ttf"
 
 TRANSPARENT_RGBA = (255, 255, 255, 0)
 
@@ -21,12 +22,30 @@ BAR_HEIGHT = 50
 BAR_RIGHT_MARGIN = 20
 BAR_OUTLINE_WIDTH = 5
 
+MEDAL_ANCHOR = (300, 400)
+MEDAL_LIMIT = 3
+
 AA_FACTOR = 1
 
-cursor_y = 0
+cursor_y: int = 0
+cursor_x: int = 0
+
+medals: Dict[str, str] = {
+    "stub": "./assets/medal_stub.png",
+}
 
 def add_offset(y: int) -> int:
     return cursor_y + y
+
+def cur_move(x: int, y: int) -> None:
+    global cursor_y, cursor_x
+    cursor_y += y
+    cursor_x += x
+
+def cur_set(*, x: Optional[int] = None, y: Optional[int] = None) -> None:
+    global cursor_y, cursor_x
+    cursor_x = x if x is not None else cursor_x
+    cursor_y = y if y is not None else cursor_y
 
 
 def load_font(font_path: Union[os.PathLike, str], size: int) -> ImageFont:
@@ -44,6 +63,12 @@ def load_font(font_path: Union[os.PathLike, str], size: int) -> ImageFont:
     return fnt
 
 
+def _get_medal(name: str) -> Image:
+    if name in medals.keys():
+        return Image.open(medals[name]).convert("RGBA")
+
+    return Image.open(medals["stub"])
+
 def draw_ellipse(image: Image, bounds: Tuple[int, int, int, int], width: int = 1, outline: str = "white") -> Image:
     mask = Image.new("L", size=[int(dim * AA_FACTOR) for dim in image.size], color = "black")
     draw = ImageDraw.Draw(mask)
@@ -59,7 +84,7 @@ def draw_ellipse(image: Image, bounds: Tuple[int, int, int, int], width: int = 1
     image.paste(outline, mask=mask)
 
 
-def add_nickname(banner: Image, name: str, font: ImageFont, mask: Optional[Image] = None) -> Tuple[Image, int]:
+def add_nickname(banner: Image, name: str, font: ImageFont, mask: Optional[Image] = None) -> Image:
     # Main text layer
     text_layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
     text_draw = ImageDraw.Draw(text_layer)
@@ -78,9 +103,10 @@ def add_nickname(banner: Image, name: str, font: ImageFont, mask: Optional[Image
 
         banner.alpha_composite(overlay_layer, (0, cursor_y))
 
-    _, upper, _, lower = text_layer.getbbox(alpha_only=True)
+    _, _, _, lower = text_layer.getbbox(alpha_only=True)
+    cur_set(y = lower)
 
-    return banner, int(lower) - int(upper)
+    return banner
 
 def draw_progressbar(banner: Image, percent: int) -> Image:
     layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
@@ -110,18 +136,40 @@ def draw_progressbar(banner: Image, percent: int) -> Image:
     mask_draw.rounded_rectangle([mx0, my0, mx1, my1], radius=mradius, fill="black")
 
     layer.paste(main_layer, mask=mask)
-    banner.alpha_composite(layer, (0, cursor_y))
+    banner.alpha_composite(layer, (0, cursor_y - BAR_HEIGHT//4))
+    cur_set(x = x0, y = y1 + BAR_HEIGHT)
 
     return banner
+
+def add_medals(image: Image, medals: List[str]) -> Image:
+    master = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    offset = 0
+    for medal in medals:
+        medal_img = _get_medal(medal)
+        medal_img.thumbnail([200, 200], Resampling.LANCZOS)
+        master.alpha_composite(medal_img, (cursor_x + offset, cursor_y))
+        offset += medal_img.size[0] - 50
+
+    image.alpha_composite(master)
+
+    return image
+
+
+
+def add_text(image: Image, text: str, font: ImageFont, anchor: Tuple[int, int]) -> Image:
+    layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(layer)
+    draw.text((0, 0), text, font=font, fill="black")
+
+    image.alpha_composite(layer, anchor)
+
+    return image
 
 def add_rank(banner: Image, rank: int, font: ImageFont) -> Image:
-    layer = Image.new("RGBA", banner.size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(layer)
-    draw.text((40, 10), f"Rank: {rank}", font=font, fill="black")
+    return add_text(banner, f"Rank: {rank}", font, anchor=(40, cursor_y))
 
-    banner.alpha_composite(layer, (0, cursor_y))
-
-    return banner
+def add_level(banner: Image, level: int, font: ImageFont) -> Image:
+    return add_text(banner, f"LVL: {level}", font, anchor=(cursor_x, cursor_y))
 
 
 
@@ -137,14 +185,28 @@ if __name__ == "__main__":
         modified_frames: List[Image] = []
 
         for frame in range(frame_count):
-            cursor_y = 0
+            cur_set(x = 0,y = 0)
+
             img.seek(frame)
             current_frame = img.convert("RGBA")
 
-            current_frame, height = add_nickname(current_frame, "Super Duper Long Nickname", hfont, mask=text_mask)
-            cursor_y = add_offset(height + 15)
+            current_frame = add_nickname(current_frame, "Super Duper Long Nickname", hfont, mask=text_mask)
+
+            cur_move(0, 5)
+
             current_frame = add_rank(current_frame, 9999, cfont)
             current_frame = draw_progressbar(current_frame, 70)
+
+            cur_move(-10, 10)
+
+            current_frame = add_level(current_frame, 12345, cfont)
+            cur_move(0, cfont.size + 10)
+            current_frame = add_text(current_frame, "Medals:", cfont, anchor=(cursor_x, cursor_y))
+
+            cur_move(0, cfont.size + 40)
+
+            current_frame = add_medals(current_frame, ["stub", "stub", "stub"])
+
 
             modified_frames.append(current_frame)
 

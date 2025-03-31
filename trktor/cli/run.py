@@ -5,7 +5,7 @@ from typing import BinaryIO
 import click
 import pydantic
 
-from models.ConfigDataModel import ConfigDataModel
+from trktor.models.ConfigDataModel import ConfigDataModel
 
 log = logging.getLogger(__name__)
 
