@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 from typing import List, Union, Tuple, Optional, Dict
@@ -31,7 +32,7 @@ cursor_y: int = 0
 cursor_x: int = 0
 
 medals: Dict[str, str] = {
-    "stub": "./assets/medal_stub.png",
+    "stub": "../../assets/medal_stub.png",
 }
 
 def add_offset(y: int) -> int:
@@ -94,7 +95,7 @@ def add_nickname(banner: Image, name: str, font: ImageFont, mask: Optional[Image
 
     if mask is not None:
         # Secondary text layer for accents, has priority over main
-        overlay_layer = Image.new("RGBA", current_frame.size, (0, 0, 0, 0))
+        overlay_layer = Image.new("RGBA", banner.size, (0, 0, 0, 0))
         overlay_draw = ImageDraw.Draw(overlay_layer)
         overlay_draw.text((10, 10), name, font=font, fill="white")
 
@@ -165,15 +166,16 @@ def add_text(image: Image, text: str, font: ImageFont, anchor: Tuple[int, int]) 
 
     return image
 
+
 def add_rank(banner: Image, rank: int, font: ImageFont) -> Image:
     return add_text(banner, f"Rank: {rank}", font, anchor=(40, cursor_y))
+
 
 def add_level(banner: Image, level: int, font: ImageFont) -> Image:
     return add_text(banner, f"LVL: {level}", font, anchor=(cursor_x, cursor_y))
 
 
-
-if __name__ == "__main__":
+def draw_banner(name: str, rank: int, level: int, medals: List[str]) -> Image:
     with Image.open(IMAGE_SRC) as img, Image.open(TEXT_MASK_SRC) as text_mask:
         frame_count = getattr(img, "n_frames", 1)
         duration = img.info.get("duration", 100)
@@ -183,6 +185,7 @@ if __name__ == "__main__":
         cfont = load_font(C_FONT_PATH, FONT_SIZE)
 
         modified_frames: List[Image] = []
+        byte_data = io.BytesIO()
 
         for frame in range(frame_count):
             cur_set(x = 0,y = 0)
@@ -190,25 +193,32 @@ if __name__ == "__main__":
             img.seek(frame)
             current_frame = img.convert("RGBA")
 
-            current_frame = add_nickname(current_frame, "Super Duper Long Nickname", hfont, mask=text_mask)
+            current_frame = add_nickname(current_frame, name, hfont, mask=text_mask)
 
             cur_move(0, 5)
 
-            current_frame = add_rank(current_frame, 9999, cfont)
+            current_frame = add_rank(current_frame, rank, cfont)
             current_frame = draw_progressbar(current_frame, 70)
 
             cur_move(-10, 10)
 
-            current_frame = add_level(current_frame, 12345, cfont)
+            current_frame = add_level(current_frame, level, cfont)
             cur_move(0, cfont.size + 10)
             current_frame = add_text(current_frame, "Medals:", cfont, anchor=(cursor_x, cursor_y))
 
             cur_move(0, cfont.size + 40)
 
-            current_frame = add_medals(current_frame, ["stub", "stub", "stub"])
+            current_frame = add_medals(current_frame, medals)
 
 
             modified_frames.append(current_frame)
 
-        modified_frames[0].save("./result.gif", save_all=True, append_images=modified_frames[1:], duration=duration, loop=0, optimize=False)
-        modified_frames[0].save("./preview.png", save_all=True)
+        modified_frames[0].save(byte_data, format="GIF", save_all=True, append_images=modified_frames[1:], duration=duration,
+                                loop=0, optimize=False)
+
+        byte_data.seek(0)
+
+        return Image.open(byte_data)
+
+if __name__ == "__main__":
+    draw_banner("Super Duper Long Name", rank=1234, level=4321, medals=["stub", "stub", "stub"]).save("result.gif")
